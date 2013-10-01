@@ -105,11 +105,16 @@ public class PositionReader {
 				if((peek=='\n')||(peek=='\r')) {
 					nextChar();
 				}
-				break;
+				if(ret.trim().equals("")) {
+					ret = "";
+					continue;
+				} else {
+					break;
+				}
 			}			
 			ret += c;
 		}
-		if(ret.trim().equals("")) return readLine();
+		//if(ret.trim().equals("")) return readLine();
 		//System.out.println("Ret: "+ret);
 		return ret;
 	}

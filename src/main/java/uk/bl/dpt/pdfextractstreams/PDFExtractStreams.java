@@ -19,8 +19,10 @@ package uk.bl.dpt.pdfextractstreams;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -42,6 +44,7 @@ public class PDFExtractStreams {
 	
 	private Map<String, String> pdfDirectory = new HashMap<String, String>();
 	private List<Stream> streams = new LinkedList<Stream>();
+	private PrintWriter gLog = null;
 	
 	/**
 	 * Deflate a file
@@ -94,14 +97,19 @@ public class PDFExtractStreams {
 			int bytesRead = 0;
 			long count = 0;
 			boolean deflate = false;
-			boolean deflatecheck = false;
+			boolean compressioncheck = false;
 			while(/*fis.available()>0&&*/count<size) {
 				bytesRead = fis.read(buffer);
-				if(!deflatecheck) {
-					if(buffer[0]==120&&buffer[1]==-100) {
-						deflate = true;
+				if(!compressioncheck) {
+					if(buffer[0]==120) {
+						if(buffer[1]==-100) {
+							deflate = true;
+						}
+						if(buffer[1]==-38) {
+							deflate = true;
+						}
+						compressioncheck = true;
 					}
-					deflatecheck = true;
 				}
 				if(!(bytesRead+count<size)) {
 					bytesRead = (int)(size-count);
@@ -125,7 +133,7 @@ public class PDFExtractStreams {
 				//we need to run garbage collector here so that we can rename the file!?
 				System.gc();
 				o.renameTo(n);
-				System.out.println(o+" -> "+n);
+				gLog.println(o+" -> "+n);
 				return n;
 			}
 			return new File(newOut);
@@ -265,7 +273,7 @@ public class PDFExtractStreams {
 				}
 				
 				if(objinfo.contains("stream")) {
-					System.out.println("    Stream obj: "+line+" "+objinfo);
+					gLog.println("    Stream obj: "+line+" "+objinfo);
 
 					streams.add(new Stream(line+" "+objinfo, buf.getPos(), -1));
 
@@ -279,11 +287,11 @@ public class PDFExtractStreams {
 				} else {
 					if(!objinfo.trim().endsWith("endobj")) { 
 						//this probably shouldn't happen
-						System.out.println("Chomping");
+						gLog.println("Chomping");
 						chompUntil("endobj", buf);
 					}
 					objinfo = line+" "+objinfo;//+" "+s;
-					System.out.println("Non-stream obj: "+objinfo);//
+					gLog.println("Non-stream obj: "+objinfo);//
 					//add to pdfDirectory here
 					pdfDirectory.put(objinfo.substring(0, objinfo.indexOf("obj")).trim(), objinfo.substring(objinfo.indexOf("obj")+3, objinfo.lastIndexOf("endobj")).trim());
 				}
@@ -292,7 +300,7 @@ public class PDFExtractStreams {
 					//ignore xref entries for now 
 					chompUntil("%%EOF", buf);
 				} else {
-					System.out.println("non-obj/xref? @~"+buf.getPos()+"\""+line+"\"");
+					gLog.println("non-obj/xref? @~"+buf.getPos()+"\""+line+"\"");
 				}
 			}
 
@@ -302,20 +310,37 @@ public class PDFExtractStreams {
 	}
 	
 	private void process(String file) {
+		
+		System.out.println("Processing: "+file);
+		
+		try {
+			gLog = new PrintWriter(file+".log");
+		} catch (FileNotFoundException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		System.out.println("Generating directory...");
 		extractDirectory(file);
 	
+		System.out.println("Updating references...");
 		updateReferences(file);
 		
+		System.out.println("Extracting streams...");
 		extractAllFiles(file);
+		
+		gLog.close();
 		
 	}
 
 	private void extractAllFiles(String file) {
 		int i = 1;
+		File dir = new File(file+".dir");
+		dir.mkdirs();
 		for(Stream stream:streams) {
 			try {
-				System.out.println("copying #"+i+" @"+stream.gStart+" len: "+stream.gLength);
-				copyStream(file, file+"."+(i++), stream.gStart, stream.gLength);
+				gLog.println("copying #"+i+" @"+stream.gStart+" len: "+stream.gLength);
+				copyStream(file, dir.getAbsolutePath()+"/"+file+"."+(i++), stream.gStart, stream.gLength);
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -351,7 +376,7 @@ public class PDFExtractStreams {
 	 */
 	public static void main(String[] args) throws IOException {
 		PDFExtractStreams pdfe = null;
-		for(String s:args)
+		for(String s:args) {
 			if(new File(s).exists()) {
 				pdfe = new PDFExtractStreams();
 				pdfe.process(s);
