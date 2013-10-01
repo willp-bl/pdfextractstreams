@@ -106,6 +106,10 @@ public class PositionReader {
 					nextChar();
 				}
 				if(ret.trim().equals("")) {
+					//HACK: chomp whitespace
+					while((""+peekNextChar()).equals("")) {
+						nextChar();
+					}
 					ret = "";
 					continue;
 				} else {
