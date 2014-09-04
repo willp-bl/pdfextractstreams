@@ -110,6 +110,10 @@ public class PDFExtractStreams {
 						}
 						compressioncheck = true;
 					}
+					//System.out.println(buffer[0]+" "+buffer[1]);
+					if(buffer[0]==72&&buffer[1]==-119) {
+						deflate = true;
+					}
 				}
 				if(!(bytesRead+count<size)) {
 					bytesRead = (int)(size-count);
@@ -125,7 +129,7 @@ public class PDFExtractStreams {
 				deflateStream(out, newOut);
 				o.delete();
 				o = new File(newOut);
-			}
+			} 
 			String ext = FormatDetector.getExt(new File(newOut)).trim();
 			if(ext!=null) {
 				if(ext.equals("plain")) ext = "txt";
@@ -180,12 +184,15 @@ public class PDFExtractStreams {
 		if(!line.toUpperCase().startsWith("%PDF")) return; 
 		while(buf.ready()) {
 			line = buf.readLine().trim();
-			if(line.endsWith("obj")) {
+			if(line.contains(" obj")) {
 				//System.out.println("obj @ "+buf.getPos()+" line: "+line);
 				//start of object
 				//read << until >> \n endobj
-				String objinfo = "";
+				String objinfo = line;
 				boolean endLoop = false;
+				if(line.endsWith("stream")||line.contains("endobj")) {
+					endLoop = true;
+				}
 				int bracketDepth = 0;
 				char c = '\0';
 				while(!endLoop) {
@@ -253,7 +260,7 @@ public class PDFExtractStreams {
 								   temp[2]=='o'&
 								   temp[3]=='b'&
 								   temp[4]=='j') {
-							objinfo += "endobj";
+							objinfo += " endobj";
 							endLoop = true;
 						} else {
 							objinfo += c;
@@ -272,34 +279,43 @@ public class PDFExtractStreams {
 										
 				}
 				
-				if(objinfo.contains("stream")) {
-					gLog.println("    Stream obj: "+line+" "+objinfo);
+				if(objinfo.contains("stream")&&!objinfo.endsWith("endstream")) {
+					System.out.println("    Stream obj: "+/*line+" "+*/objinfo);
+					gLog.println("    Stream obj: "+/*line+" "+*/objinfo);
 
-					streams.add(new Stream(line+" "+objinfo, buf.getPos(), -1));
+					streams.add(new Stream(/*line+" "+*/objinfo, buf.getPos(), -1));
 
-					@SuppressWarnings("unused")
-					String endstream = chompUntil("endstream", buf);
+					if(!objinfo.endsWith("endobj")) {
+						String endstream = chompUntil("endstream", buf);
 
-					if(!buf.readLine().equals("endobj")) {
-						System.err.println("ERROR??? No endobj?");
+						if(!buf.readLine().equals("endobj")) {
+							System.err.println("ERROR??? No endobj?");
+						}
 					}
 					
 				} else {
-					if(!objinfo.trim().endsWith("endobj")) { 
+					if(!objinfo.trim().endsWith("endobj")) {
+						//System.out.println("objinfo? "+objinfo);
 						//this probably shouldn't happen
+						//System.out.println("Chomping");
 						gLog.println("Chomping");
 						chompUntil("endobj", buf);
 					}
-					objinfo = line+" "+objinfo;//+" "+s;
+					//objinfo = line+" "+objinfo;//+" "+s;
 					gLog.println("Non-stream obj: "+objinfo);//
 					//add to pdfDirectory here
-					pdfDirectory.put(objinfo.substring(0, objinfo.indexOf("obj")).trim(), objinfo.substring(objinfo.indexOf("obj")+3, objinfo.lastIndexOf("endobj")).trim());
+					try {
+						pdfDirectory.put(objinfo.substring(0, objinfo.indexOf("obj")).trim(), objinfo.substring(objinfo.indexOf("obj")+3, objinfo.lastIndexOf("endobj")).trim());
+					} catch(StringIndexOutOfBoundsException e) {
+						System.out.println("Exception@ obj: "+objinfo);
+					}
 				}
 			} else {
 				if(line.equals("xref")) {
 					//ignore xref entries for now 
 					chompUntil("%%EOF", buf);
 				} else {
+					//System.out.println("non-obj/xref? @~"+buf.getPos()+"\""+line+"\"");
 					gLog.println("non-obj/xref? @~"+buf.getPos()+"\""+line+"\"");
 				}
 			}
@@ -333,14 +349,17 @@ public class PDFExtractStreams {
 		
 	}
 
+	//extract all files to a directory (to avoid clutter)
 	private void extractAllFiles(String file) {
 		int i = 1;
 		File dir = new File(file+".dir");
 		dir.mkdirs();
 		for(Stream stream:streams) {
 			try {
+				//System.out.println("copying #"+i+" @"+stream.gStart+" len: "+stream.gLength);
 				gLog.println("copying #"+i+" @"+stream.gStart+" len: "+stream.gLength);
-				copyStream(file, dir.getAbsolutePath()+"/"+file+"."+(i++), stream.gStart, stream.gLength);
+				final String num = stream.gObjinfo.split(" ")[0].trim();
+				copyStream(file, dir.getAbsolutePath()+"/"+new File(file).getName()+"."+num/*(i++)*/, stream.gStart, stream.gLength);
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -354,9 +373,12 @@ public class PDFExtractStreams {
 			int lenIndex = stream.gObjinfo.indexOf(lenKey);
 			//try different combinations to find the value for the length attribute 
 			int end = stream.gObjinfo.indexOf('/', lenIndex+1);
-			if(end<0) end = stream.gObjinfo.indexOf('/', lenIndex+1);
-			if(end<0) end = stream.gObjinfo.indexOf('>', lenIndex+1);
+			int tmp = stream.gObjinfo.indexOf('>', lenIndex+1);
+			if(end<0||(tmp>0&&tmp<end)) {
+				end = tmp;
+			}
 			//recover the length attribute
+			//System.out.println("stream: "+stream.gObjinfo+" "+end);
 			String lenValue = stream.gObjinfo.substring(lenIndex+lenKey.length(), end).trim();
 			if(lenValue.endsWith("R")) {
 				//this is a reference to a size object (eugh) - it only contains the size!!!
@@ -375,6 +397,7 @@ public class PDFExtractStreams {
 	 * @throws IOException 
 	 */
 	public static void main(String[] args) throws IOException {
+
 		PDFExtractStreams pdfe = null;
 		for(String s:args) {
 			if(new File(s).exists()) {
@@ -382,6 +405,7 @@ public class PDFExtractStreams {
 				pdfe.process(s);
 			}
 		}
+		
 	}
 
 }

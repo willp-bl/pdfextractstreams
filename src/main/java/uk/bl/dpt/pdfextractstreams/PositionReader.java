@@ -119,7 +119,6 @@ public class PositionReader {
 			ret += c;
 		}
 		//if(ret.trim().equals("")) return readLine();
-		//System.out.println("Ret: "+ret);
 		return ret;
 	}
 	
