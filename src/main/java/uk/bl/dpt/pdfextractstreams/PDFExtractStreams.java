@@ -110,7 +110,6 @@ public class PDFExtractStreams {
 						}
 						compressioncheck = true;
 					}
-					//System.out.println(buffer[0]+" "+buffer[1]);
 					if(buffer[0]==72&&buffer[1]==-119) {
 						deflate = true;
 					}
@@ -190,7 +189,7 @@ public class PDFExtractStreams {
 				//read << until >> \n endobj
 				String objinfo = line;
 				boolean endLoop = false;
-				if(line.endsWith("stream")||line.contains("endobj")) {
+				if(line.contains("stream")||line.contains("endobj")) {
 					endLoop = true;
 				}
 				int bracketDepth = 0;
@@ -271,6 +270,43 @@ public class PDFExtractStreams {
 						continue;
 					}
 					
+					if(c=='s'&buf.peekNextChar()=='t') {
+						//endobj?
+						char[] temp = new char[5];
+						for(int j=0;j<temp.length;j++) {
+							temp[j] = buf.nextChar();
+						}
+						if(temp[0]=='t'&
+								   temp[1]=='r'&
+								   temp[2]=='e'&
+								   temp[3]=='a'&
+								   temp[4]=='m') {
+							objinfo += " stream";
+							// chomp whitespace
+							boolean chomp = true;
+							while(chomp) {
+								switch(buf.peekNextChar()) {
+									case '\n':
+									case '\r': {
+										buf.nextChar();
+										break;
+									}
+									default: {
+										chomp = false;
+										break;
+									}
+								}
+							}
+							endLoop = true;
+						} else {
+							objinfo += c;
+							for(int j=0;j<temp.length;j++) {
+								objinfo+=temp[j];
+							}
+						}
+						continue;
+					}
+					
 					if(c!='\n') {
 						if(c!='\r') {
 							objinfo += c;
@@ -279,7 +315,7 @@ public class PDFExtractStreams {
 										
 				}
 				
-				if(objinfo.contains("stream")&&!objinfo.endsWith("endstream")) {
+				if(objinfo.contains("stream")) {//&&!objinfo.endsWith("endstream")) {
 					System.out.println("    Stream obj: "+/*line+" "+*/objinfo);
 					gLog.println("    Stream obj: "+/*line+" "+*/objinfo);
 
@@ -300,6 +336,7 @@ public class PDFExtractStreams {
 						//System.out.println("Chomping");
 						gLog.println("Chomping");
 						chompUntil("endobj", buf);
+						objinfo+=" endobj";
 					}
 					//objinfo = line+" "+objinfo;//+" "+s;
 					gLog.println("Non-stream obj: "+objinfo);//
@@ -359,6 +396,7 @@ public class PDFExtractStreams {
 				//System.out.println("copying #"+i+" @"+stream.gStart+" len: "+stream.gLength);
 				gLog.println("copying #"+i+" @"+stream.gStart+" len: "+stream.gLength);
 				final String num = stream.gObjinfo.split(" ")[0].trim();
+				// FIXME: look for FlateDecode and use it!
 				copyStream(file, dir.getAbsolutePath()+"/"+new File(file).getName()+"."+num/*(i++)*/, stream.gStart, stream.gLength);
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
@@ -397,7 +435,7 @@ public class PDFExtractStreams {
 	 * @throws IOException 
 	 */
 	public static void main(String[] args) throws IOException {
-
+		
 		PDFExtractStreams pdfe = null;
 		for(String s:args) {
 			if(new File(s).exists()) {
